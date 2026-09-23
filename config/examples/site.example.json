@@ -1,0 +1,51 @@
+{
+  "status": "UNCONFIGURED WORKSHEET — not consumed by an installer",
+  "topology": null,
+  "pi": {
+    "model": null,
+    "os_version": null,
+    "networkmanager_version": null,
+    "lan_interface": null,
+    "usb_interface": null,
+    "usb_identity_and_reconnect_evidence": null,
+    "management_address_cidr": null,
+    "usb_address_cidr": null
+  },
+  "camera_network": {
+    "subnet_cidr": null,
+    "gateway": null,
+    "dhcp_owner": null,
+    "dhcp_pool": null,
+    "ap_management_address": null,
+    "camera_address": null
+  },
+  "radio": {
+    "model": null,
+    "firmware": null,
+    "host_address_cidr": null,
+    "usb_cable_part_number": null,
+    "waveform": null,
+    "channel_mhz": null,
+    "return_route_to_camera_network": null
+  },
+  "command_post": {
+    "viewer_address": null,
+    "subnet_cidr": null,
+    "pi_route_to_cp": null,
+    "cp_route_to_camera": null
+  },
+  "video": {
+    "protocol": null,
+    "endpoint_without_credentials": null,
+    "initiator": null,
+    "media_ports": null
+  },
+  "recovery": {
+    "console_access": null,
+    "backup_location": null,
+    "previous_profiles_and_autoconnect_values": [],
+    "trial_profile_uuids": [],
+    "firewall_and_forwarding_changes": [],
+    "rollback_evidence": null
+  }
+}

@@ -11,3 +11,18 @@ desktop.ini
 # Never commit these; redact and share out of band if needed.
 *.pcap
 *.pcapng
+
+# Generated Python caches and disposable virtual-lab evidence
+__pycache__/
+*.py[cod]
+/test-results/virtual-*/
+
+# Raw endpoint identifiers and generated RF reports; keep reviewed summaries separately.
+/test-results/rf-raw-*/
+/test-results/rf-report-*/
+
+# Local VM tools, downloaded disks, SSH keys and runtime state
+/vm/runtime/
+
+# VM handoff disks and VM-specific access credentials.
+/exports/

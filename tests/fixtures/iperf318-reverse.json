@@ -1,0 +1,43 @@
+{
+  "start": {
+    "version": "iperf 3.18",
+    "connecting_to": {
+      "host": "127.0.0.1",
+      "port": 48789
+    },
+    "test_start": {
+      "protocol": "TCP",
+      "num_streams": 1,
+      "blksize": 131072,
+      "omit": 0,
+      "duration": 2,
+      "bytes": 0,
+      "blocks": 0,
+      "reverse": 1,
+      "tos": 0,
+      "target_bitrate": 2000000,
+      "bidir": 0,
+      "fqrate": 0,
+      "interval": 1
+    }
+  },
+  "end": {
+    "sum_sent": {
+      "start": 0,
+      "end": 2.001934,
+      "seconds": 2.001934,
+      "bytes": 524288,
+      "bits_per_second": 2095126.0131452887,
+      "retransmits": 0,
+      "sender": false
+    },
+    "sum_received": {
+      "start": 0,
+      "end": 2.001344,
+      "seconds": 2.001344,
+      "bytes": 524288,
+      "bits_per_second": 2095743.660260305,
+      "sender": false
+    }
+  }
+}

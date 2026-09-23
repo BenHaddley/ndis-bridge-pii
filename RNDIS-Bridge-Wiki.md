@@ -1,6 +1,14 @@
 # RNDIS Bridge on Raspberry Pi
 
-_Last updated: Sep 23, 2026_
+_Last updated: Sep 24, 2026_
+
+**Build plan:** [Phased implementation roadmap](BUILD-ROADMAP.md) — milestones, dependencies, deliverables and acceptance gates.
+
+**No-hardware development:** [Run the virtual network lab](lab/README.md) to exercise bridging, routing, DHCP and link recovery in isolated Linux namespaces.
+
+**Prepared next steps:** [Network design and rollback](docs/network-design.md), [RF measurement and report tool](docs/rf-measurement.md), [video profile](docs/video-profile.md), and [SitaWare discovery](docs/sitaware-integration.md). These are bench preparation, not completed hardware milestones.
+
+**PDF review:** [Page-level findings and reading guide](docs/reference-notes.md). The RF-9820S sheet advertises IP over USB; its actual USB protocol and Linux compatibility remain untested. The handheld’s listed 20 MHz bandwidth ceiling also needs reconciling with the reported 40 MHz TSM plan.
 
 ## Contents
 
@@ -47,14 +55,11 @@ Everything in this wiki traces back to that. Sections are marked where they go *
 
 **1. The 9820 is a radio, not a video device.** It is the L3Harris RF-9820S (AN/PRC-171) Compact Team Radio. The brief reads as though the Pi feeds video *into* the 9820; in fact the Pi puts video *onto a tactical MANET radio* for transport elsewhere. See [What the 9820 turned out to be](#what-the-9820-turned-out-to-be).
 
-**2. Nothing publicly confirms the RF-9820S presents a USB network interface at all.** The entire concept rests on that premise, and L3Harris's public material does not state it. This is a half-day question to answer with the radio and a Pi on a desk, and it should be answered before any further design work. If the answer is no, or "only via proprietary L3Harris host software", the approach changes at the root.
+**2. IP over USB is advertised, but RNDIS and Linux compatibility are unconfirmed.** The [RF-9820S sell sheet](references/pdf/l3harris-rf-9820s-compact-team-radio-sell-sheet.pdf), p. 2, lists IP over USB and Ethernet. It does not specify the USB class, cable, host setup or Linux driver. Vendor host-interface instructions and real enumeration evidence are still required.
 
-**3. "Port it thru" cannot be transparent forwarding.** This is the part of the brief that does not survive contact with the real kit:
+**3. Size the video to the configured waveform and measured link.** Jeremy reports **WRAITH at 10 or 20 MHz**, and/or **TSM at 40 MHz**, with **16 Mbps available from WRAITH at 10 MHz**. This replaces the earlier generic low-single-digit throughput assumption. See [Jeremy’s radio update](#jeremys-radio-update) for provenance and remaining questions.
 
-- The **Wi-Fi ingest** side is fast — tens of Mbit/s, easily enough for several camera streams.
-- The **MANET backhaul** is slow — typically low single-digit Mbit/s *shared across the whole net*, competing with voice and position reporting.
-
-A transparent bridge between a fast ingest and a slow backhaul does not adapt; it simply drops whatever does not fit, and video degrades badly under indiscriminate loss. **The Pi therefore has to be a rate-adapting relay, not a bridge** — terminating the camera streams and re-emitting them at a bitrate the radio can carry. That is a materially different piece of software from what the brief implies, and it is the single most important design consequence in this document.
+Transparent forwarding can be sufficient if the combined camera traffic fits the usable link capacity and the radio supports the chosen network arrangement. Camera bitrate settings are the first control; stream selection or transcoding is only needed if the required traffic exceeds the available capacity. The Pi does not automatically need to terminate and re-encode video.
 
 **My recommendation:** do not design further until two cheap tests are done. Plug the radio into a Pi and run `lsusb` / `ip link` — that answers premise 2 in minutes. Then measure real throughput between two radios at operational range — that sizes everything else. Both are quick, and between them they determine whether this is a networking job or a video-engineering job.
 
@@ -92,7 +97,7 @@ Both wireless links in this system are real and do different jobs. The Wi-Fi AP 
                        eth0
                   ┌──────┴───────┐
                   │ Raspberry Pi │   ← the brief's "Linux build"
-                  │   eth0 ↔ usb0│      RNDIS ↔ LAN, and rate adaptation
+                  │   eth0 ↔ usb0│      RNDIS ↔ LAN; rate control if needed
                   └──────┬───────┘
                        usb0
                          │ USB / RNDIS   ← interface type UNCONFIRMED
@@ -184,7 +189,7 @@ A reasonable compromise, and the likely end state: **bridge the cameras and the 
 
 ### The third job: rate adaptation
 
-Neither option addresses the bitrate mismatch in [Short answer](#short-answer). Whichever you choose, the Pi additionally has to terminate the camera streams and re-emit them sized to the measured RF link. Options, cheapest first:
+Both options must keep aggregate traffic within the measured RF capacity. Jeremy’s reported 16 Mbps at WRAITH 10 MHz provides a starting point, not a measured application budget. If camera settings already fit, forwarding needs no stream termination. Where additional rate control is required, the options are:
 
 | Approach | Notes |
 | --- | --- |
@@ -214,6 +219,22 @@ Points that actually matter:
 
 Two AN/PRC-171 (RF-9820S) radios, one with the operator, one at the command post.
 
+### Jeremy's radio update
+
+**Source:** Jeremy, relayed by the project owner in this conversation on 23 September 2026. These are project-supplied radio details, not claims extracted from the public PDFs or independently measured here.
+
+| Item | Updated project information |
+| --- | --- |
+| Waveform selection | Use **WRAITH, 10/20 MHz channel bandwidth**, and/or **TSM, 40 MHz channel bandwidth**, in place of ANW2C in the design |
+| WRAITH at 10 MHz | Jeremy reports it can deliver **16 Mbps** |
+| WRAITH at 20 MHz | Throughput not supplied; do not assume twice the 10 MHz result |
+| TSM at 40 MHz | Throughput not supplied; measure separately |
+| DHCP | **The radio has a built-in DHCP server**; confirm its enabled state, pool and host-interface scope |
+
+MHz describes RF channel bandwidth; Mbps describes data rate. Confirm whether the reported 16 Mbps is a nominal radio rate or measured usable IP throughput, and record range, hop count, traffic direction and concurrent load. Also confirm the installed firmware/licences support the intended waveform configuration; “and/or” does not establish simultaneous operation.
+
+This update supersedes the earlier generic throughput assumption and the uncertainty about whether a radio DHCP server exists. It does not establish USB driver compatibility, DHCP reach across routed segments, or end-to-end Layer-2 bridging.
+
 ### What the public material says
 
 Downloaded to [`references/pdf/`](references/pdf/) and catalogued in [`MANIFEST.md`](references/pdf/MANIFEST.md):
@@ -224,20 +245,24 @@ Downloaded to [`references/pdf/`](references/pdf/) and catalogued in [`MANIFEST.
 | RF-9820S Compact Team Radio sell sheet | `l3harris-rf-9820s-compact-team-radio-sell-sheet.pdf` |
 | RF-9820S-ER Embeddable Modular Radio sell sheet | `l3harris-rf-9820s-er-embeddable-modular-radio-sell-sheet.pdf` |
 
-These are two-page marketing sell sheets whose **text is not machine-extractable**, so nothing here is cited to a page — read them directly. From L3Harris's public pages: single-channel, low-SWaP, wideband MANET plus narrowband voice/PLI, in-field waveform upgrades (including the Wraith resilient wideband waveform), 20+ hours on a battery. The separate **RF-9820S-ER** embeddable variant is described with 225 MHz–2.6 GHz coverage and AES-256 — do not transfer those figures to the handheld.
+The PDFs are now text-extractable with `pdftotext -layout`. On 24 September 2026, the saved copies were reviewed and the RF-9820S page-2 table was also inspected visually. See the [reference review](docs/reference-notes.md) for exact document identifiers and limitations.
 
-**What the public material does not state, and the design depends on:**
+The [RF-9820S handheld sheet](references/pdf/l3harris-rf-9820s-compact-team-radio-sell-sheet.pdf), p. 2, advertises IP over USB and Ethernet, a 25 kHz–20 MHz bandwidth range, optional Wraith/TSM waveforms, and a wideband maximum of 50 Mbps. These are product claims, not measurements of the proposed configuration. The [AN/PRC-171 sheet](references/pdf/l3harris-an-prc-171-compact-team-radio-sell-sheet.pdf), p. 2, also lists IP over USB and the same bandwidth range.
 
-- Whether a **host USB network interface** exists at all, let alone that it is RNDIS.
-- **Data rates.** No throughput figure appears publicly.
-- Whether that interface **bridges Layer 2 or routes Layer 3**.
-- MTU, multicast handling, DHCP behaviour.
+**Open discrepancy:** Jeremy reports TSM at 40 MHz. The separate [RF-9820S-ER embeddable sheet](references/pdf/l3harris-rf-9820s-er-embeddable-modular-radio-sell-sheet.pdf), p. 2, lists 40 MHz as a TSM option, but that does not establish handheld support. Resolve model, firmware and installed waveform options before including 40 MHz in the hardware test plan.
 
-All of that lives in the radio's Interface Control Document, operator manual or programming guide, obtained through your programme's L3Harris channel. **That documentation is the critical path.** Until it exists, this is a plan, not a specification.
+**What these sheets do not establish:**
+
+- USB class/protocol, compatible Linux driver, cable pinout or host setup.
+- Measured usable IP throughput for WRAITH 10/20 MHz or the reported TSM configuration.
+- Whether the host interface accepts multiple MAC addresses or supports the required routed camera subnet.
+- MTU, multicast handling and DHCP configuration/scope.
+
+Obtain the radio’s Interface Control Document and programming instructions, then confirm them on hardware. The public IP-over-USB entry narrows the Phase 1 question; it does not pass that gate.
 
 ### Throughput is the binding constraint
 
-Tactical wideband MANET generally delivers low single-digit Mbit/s *shared across every radio in the net*, degrading with range, terrain, hop count and participant count — and the net also carries voice and PLI, which will be prioritised over video.
+Use **WRAITH 10 MHz: 16 Mbps, as reported by Jeremy**, as the initial reference. WRAITH 20 MHz and TSM 40 MHz need their own throughput figures. Available video capacity must be established with the intended range, terrain, hop count, participants and concurrent voice/PLI traffic; confirm the configured traffic priorities.
 
 Measure it properly: over the actual radios, at operational range, with the net carrying its normal load. Not a datasheet maximum, and not two radios on a desk a metre apart. Then size the video to the result, using the rate-adaptation options above.
 
@@ -245,7 +270,7 @@ Measure it properly: over the actual radios, at operational range, with the net 
 
 - **MTU.** Tactical links commonly run reduced MTU. A path MTU smaller than the LAN's causes fragmentation or silent drops of full-size frames — "small packets work, video does not". This interacts with the RNDIS `MaxTransferSize` at the USB end.
 - **Multicast.** Confirm whether the radio forwards it at all. Many tactical links suppress it because it is expensive on a shared channel.
-- **DHCP.** A routed radio link will not relay DHCP without explicit configuration. Go static.
+- **DHCP.** Jeremy confirms a server in the radio. Use it on the attached LAN if its scope and forwarding behaviour support that arrangement. Separate routed LANs need their own address assignment or an explicitly supported DHCP relay.
 
 ### CP end kit
 
@@ -335,7 +360,7 @@ An **IPv4, isolated bench example**, adapted from the [NetworkManager bridge exa
 
 Run the cutover at a local console — moving `eth0` into a bridge can interrupt SSH. Record existing profile names, UUIDs and autoconnect settings for recovery.
 
-Raspberry Pi OS uses NetworkManager by default from Bookworm onward, but verify with `nmcli device status` rather than trusting the version: a Pi upgraded in place from Bullseye may still be running `dhcpcd`. Background is in [`transitioning-bullseye-to-bookworm.pdf`](references/pdf/transitioning-bullseye-to-bookworm.pdf) (19 pages, 15 August 2024) — its text could not be machine-extracted, so read it directly. For deployment prefer the current [Raspberry Pi configuration](https://www.raspberrypi.com/documentation/computers/configuration.html) docs.
+Raspberry Pi OS uses NetworkManager by default from Bookworm onward, but verify with `nmcli device status` rather than trusting the version: a Pi upgraded in place from Bullseye may still be running `dhcpcd`. Background is in [`transitioning-bullseye-to-bookworm.pdf`](references/pdf/transitioning-bullseye-to-bookworm.pdf) (19 pages, 15 August 2024) — see PDF p. 12, Networking; text was successfully extracted during the 24 September review. For deployment prefer the current [Raspberry Pi configuration](https://www.raspberrypi.com/documentation/computers/configuration.html) docs.
 
 ### Create the profiles
 
@@ -443,7 +468,7 @@ Bring up one camera on the AP and confirm the Pi can pull its stream. Still no R
 
 Now bring the radios in and repeat from the CP end. If step 4 passed and this fails, the radio is the problem, not the bridge — which is why these are separate steps.
 
-**7. Real video, rate-adapted**
+**7. Real video within the measured link budget**
 
 Only now try video end to end, at a bitrate derived from the measured RF throughput.
 
@@ -451,7 +476,11 @@ Only now try video end to end, at a bitrate derived from the measured RF through
 
 Use one DHCP server, or none for an all-static test. Candidates that may each try to serve: the AP, the radio, the Pi, and the CP router. Multiple servers on one broadcast domain cause random address conflicts and clients silently picking the wrong gateway/DNS.
 
-**All-static is the stronger default here.** If the radio link routes rather than bridges, DHCP will not cross it without explicit relay configuration, so a single server at one end stops working the moment the far end is involved.
+**Preferred starting point: inspect the radio’s built-in DHCP server, confirmed by Jeremy.** Record its pool, subnet mask, gateway, DNS options and lease/reservation controls. On a locally bridged camera LAN, use it as the sole server if DHCP requests reach it; disable competing AP/Pi DHCP services. Give fixed management addresses reservations or addresses outside the pool.
+
+For a routed Pi, the radio’s DHCP server may serve only the USB-side subnet. Cameras on a separate Ethernet subnet need local DHCP, static addresses, or a supported relay. One server per isolated broadcast domain is valid; do not assume a local radio server assigns addresses across the RF network.
+
+The following remains an **alternative all-static bench plan**, not the radio’s known defaults. Disable DHCP for this test, or exclude these addresses from its pool before using them:
 
 | Device | Address |
 | --- | --- |
@@ -519,15 +548,19 @@ Test hop by hop rather than end to end:
 
 ## Throughput and acceptance tests
 
+Use the [RF collection procedure and offline report tool](docs/rf-measurement.md) to preserve raw iperf3 JSON, test conditions and directional planning budgets. Hardware acceptance remains separate.
+
 The Pi 4's Gigabit Ethernet and USB sockets ([Pi 4 datasheet](references/pdf/raspberry-pi-4-datasheet.pdf) §2.2, p. 6) are interface ceilings only, and irrelevant here. Measure each segment separately — one end-to-end number will not tell you which hop is the ceiling:
 
 | Segment | How to measure | Expect |
 | --- | --- | --- |
 | Camera ↔ Pi over Wi-Fi | `iperf3` laptop-to-Pi over the AP | Tens of Mbit/s — not the bottleneck |
 | Pi ↔ radio over USB | Device test service, or real streaming | Unknown until tested |
-| Across the RF link | `iperf3` between laptops at each end, at operational range | **The bottleneck.** Low single-digit Mbit/s is a realistic planning assumption until measured |
+| Across the RF link | `iperf3` between laptops at each end, at operational range | Reference: Jeremy reports **16 Mbps at WRAITH 10 MHz**; measure usable throughput for each selected waveform/bandwidth |
 
-Derive the video budget from the RF figure, then choose stream settings. As a rough guide: CoT position reports are negligible (well under 1 kbit/s); one heavily compressed low-rate stream is hundreds of kbit/s to ~1 Mbit/s; multiple full-rate camera streams are tens of Mbit/s and will not fit.
+Derive the video budget from **measured usable IP throughput**, allowing for concurrent traffic and bitrate peaks. Do not reserve the entire reported 16 Mbps for encoded video.
+
+Illustrative arithmetic only: if testing establishes 16 Mbps usable throughput, an initial 25% reserve leaves **12 Mbps** for video and its transport overhead. Four streams configured at 2 Mbps total **8 Mbps of encoded payload**; four at 4 Mbps total **16 Mbps** and exceed that provisional budget before transport overhead. The reserve is a planning choice, not a radio specification or acceptance guarantee. Measure bursts, loss and other traffic before selecting final settings.
 
 Measure with endpoints that can run `iperf3` — do not assume the radio can.
 
@@ -547,6 +580,8 @@ Measure with endpoints that can run `iperf3` — do not assume the radio can.
 Agree acceptable latency, frame loss, reconnect time and test duration before calling this production-ready. Record firmware, kernel, OS, topology and stream settings with every result.
 
 ## Testing without a Pi: an ARM64 VM
+
+**Implemented development environment:** the project owner selected a [Debian amd64 PC VM](vm/README.md). It runs the existing namespace lab inside a complete guest, using software emulation on the current host. ARM emulation and physical USB passthrough are separate future options.
 
 You can test most of the Linux networking on an ordinary x86 PC first using QEMU, de-risking the software before hardware arrives.
 
@@ -571,9 +606,9 @@ Physical PC
 
 Ordered by how much damage each does if it goes the wrong way.
 
-- **The RF-9820S may not present a host network interface at all.** The entire concept assumes it does, and no public material states it. If it needs proprietary L3Harris host software rather than standard RNDIS/ECM, the approach changes at the root. **Highest priority; cheapest to test.**
-- **MANET throughput may not carry the video.** Low single-digit Mbit/s shared across a net also carrying voice and PLI. If the gap to requirement is large, the fix is a different video design, not network tuning.
-- **Rate adaptation is unbuilt work.** The brief implies transparent forwarding; the kit requires an active relay. This is software that does not exist yet and is not budgeted.
+- **The advertised IP-over-USB interface remains untested on Linux.** The handheld sell sheet lists it on p. 2, but the cable, USB class, firmware mode and driver are unknown. Obtain the host-interface guide and capture actual enumeration before selecting the topology.
+- **Usable throughput still needs measurement.** Jeremy reports 16 Mbps at WRAITH 10 MHz; application throughput, operating conditions and competing traffic determine how much video fits. Rates for WRAITH 20 MHz and TSM 40 MHz remain unspecified.
+- **Additional rate adaptation may be needed.** First test camera bitrate controls and forwarding. Budget relay/transcoding work only if stream requirements exceed the measured link capacity.
 - **SitaWare integration is a separate project.** Packets reaching the CP produce no map tracks. CoT emission, a position source and a video path all have to be built and tested.
 - **The radio link probably does not carry Layer 2.** A MANET radio is a routing node by design, so the flat-LAN bridge likely stops at the radio.
 - **AP client isolation.** Default-on in many APs, and it silently breaks camera-to-Pi traffic.
@@ -585,6 +620,8 @@ Ordered by how much damage each does if it goes the wrong way.
 - **Two things could shrink this a lot.** If the radio's PLI already puts the operator on the map, and if SitaWare Edge is already licensed, the remaining problem is just "get camera video onto the link" — much closer to the original brief.
 
 ## Next steps checklist
+
+Use the [build roadmap](BUILD-ROADMAP.md) for the implementation sequence and pass/fail gates.
 
 **Two cheap tests first — they determine everything else**
 
@@ -605,7 +642,9 @@ Ordered by how much damage each does if it goes the wrong way.
 - [ ] AP in bridge mode, client isolation off, one DHCP server or fully static
 - [ ] Prove camera → Pi ingest with no RF link in the path
 - [ ] Add the RF link and prove CP → camera reachability
-- [ ] Build rate adaptation sized to the measured link
+- [ ] Select WRAITH 10/20 MHz or TSM 40 MHz and record firmware/configuration
+- [ ] Verify radio DHCP scope/pool and disable competing servers on that LAN
+- [ ] Size camera bitrates to measured throughput; add rate adaptation only if needed
 - [ ] Emit CoT and confirm the track appears on the SitaWare map
 - [ ] One video stream into SitaWare, then add more only if measurements allow
 
@@ -621,10 +660,11 @@ A bench worksheet, not confirmed specifications.
 | Item | Record or verify |
 | --- | --- |
 | Radio identity | Confirmed L3Harris RF-9820S (AN/PRC-171). Firmware, waveform loadout |
-| Radio host interface | Does a USB network interface exist? Connector, cable, mode. **Everything depends on this** |
+| Radio host interface | IP over USB advertised on p. 2 of the handheld sheet; confirm actual connector, cable, mode, USB protocol and Linux operation |
 | Driver | Does Linux bind `rndis_host`, `cdc_ether`, or nothing? VID:PID, `dmesg` output |
 | Link mode | Layer-2 bridge or Layer-3 routed |
-| Radio addressing | Its own IP, gateway behaviour, whether it serves DHCP |
+| Radio addressing | Built-in DHCP server confirmed by Jeremy; collect enabled state, pool, scope, reservations, own IP and gateway behaviour |
+| Waveform / capacity | WRAITH 10/20 MHz and/or TSM 40 MHz; 16 Mbps reported at WRAITH 10 MHz; measure each intended configuration |
 | Route injection | Can the camera subnet be advertised into the MANET, or is NAT required? |
 | Radio throughput | Measured at operational range under normal net load |
 | MTU | Configured and effective path MTU |
@@ -638,7 +678,7 @@ A bench worksheet, not confirmed specifications.
 
 ## Reference library and PDF resources
 
-Sources consulted **23 September 2026**. They establish general platform behaviour and product positioning — **not** that the RF-9820S presents a Linux-compatible USB network interface, which remains unverified.
+Sources collected **23 September 2026**, with PDF text/page review **24 September 2026**. They establish general platform behaviour and product positioning — **not** that the RF-9820S presents a Linux-compatible USB network interface, which remains unverified.
 
 ### Web references
 
@@ -668,13 +708,13 @@ Downloaded **23 September 2026** into [`references/pdf/`](references/pdf/), each
 | [Bullseye → Bookworm](https://pip-assets.raspberrypi.com/categories/1261-transitioning/documents/RP-006519-WP-1-Transitioning%20from%20Bullseye%20to%20Bookworm.pdf) | `transitioning-bullseye-to-bookworm.pdf` | 19 pp, 15 Aug 2024. **The URL previously cited here 404s**; this is the working one |
 | [MS-RNDIS specification](https://download.microsoft.com/download/5/0/1/501ED102-E53F-4CE0-AA6B-B0F93629DDC6/Windows/%5BMS-RNDIS%5D.pdf) | `MS-RNDIS.pdf` | 46 pp. **Text extractable** — cited at section/page level. Release stamp 1 May 2014, revision summary to rev 5.0 (15 May 2014). Not verified as newest |
 | [USB-IF CDC-ECM subclass](https://www.usb.org/sites/default/files/CDC1.2_WMC1.1_012011.zip) | `usb-cdc-ecm-120.pdf` | 23 pp, from the CDC 1.2 package (Jan 2011). Relevant if the radio presents ECM. Extracted from an archive carrying an adopters agreement — check terms before redistributing |
-| [L3Harris AN/PRC-171 sell sheet](https://www.l3harris.com/all-capabilities/an-prc-171-compact-team-radio) | `l3harris-an-prc-171-compact-team-radio-sell-sheet.pdf` | 2 pp. Text **not** extractable. Says nothing about host interface or data rates |
+| [L3Harris AN/PRC-171 sell sheet](https://www.l3harris.com/all-capabilities/an-prc-171-compact-team-radio) | `l3harris-an-prc-171-compact-team-radio-sell-sheet.pdf` | 2 pp. Text extracted; p. 2 lists IP over USB/Ethernet, a bandwidth range and a marketing data-rate maximum. Linux compatibility remains untested |
 | [L3Harris RF-9820S sell sheet](https://www.l3harris.com/resources/rf-9820s-compact-team-radio-sell-sheet) | `l3harris-rf-9820s-compact-team-radio-sell-sheet.pdf` | 2 pp. Same radio, commercial designation |
 | [L3Harris RF-9820S-ER sell sheet](https://www.l3harris.com/sites/default/files/2025-04/l3harris-rf-9820s-er-sell-sheet-cs-tcom.pdf) | `l3harris-rf-9820s-er-embeddable-modular-radio-sell-sheet.pdf` | 2 pp. **Different product** — do not transfer its figures to the handheld |
 | [SitaWare HQ flyer](https://systematic.com/int/industries/defence/news-knowledge/downloads/flyers/sitaware-headquarters-flyer/) | `sitaware-headquarters-sales-flyer.pdf` | 2 pp. Marketing, not an interface spec |
 | [SitaWare Edge flyer](https://systematic.com/int/industries/defence/news-knowledge/downloads/flyers/sitaware-edge-flyer/) | `sitaware-edge-sales-flyer.pdf` | 2 pp. Relevant to whether Edge removes work from the Pi |
 
-**On the vendor documents:** the five L3Harris and Systematic PDFs are *public marketing material*. They establish what the products are; they do not specify interfaces, throughput or integration. Statements about SitaWare's supported standards come from Systematic's public web page, not these PDFs.
+**On the vendor documents:** these are public marketing material. The handheld sheets list interface types and headline rates, but do not provide a host-interface procedure or measured throughput for this build. The SitaWare flyers are not integration specifications. See the [page-level review and reading guide](docs/reference-notes.md).
 
 To re-fetch and verify:
 
@@ -690,7 +730,7 @@ Confirm a download is a PDF before relying on it — a moved document may return
 
 ### Documents still needed
 
-- **AN/PRC-171 / RF-9820S ICD, operator manual and programming guide.** **The critical path.** Host interface existence and type, L2 vs L3, addressing and route injection, MTU, multicast, throughput, PLI behaviour. Via your programme's L3Harris channel.
+- **AN/PRC-171 / RF-9820S ICD, operator manual and programming guide.** **The critical path.** Advertised IP-over-USB setup and protocol, L2 vs L3, addressing and route injection, MTU, multicast, throughput, PLI behaviour. Via your programme's L3Harris channel.
 - **SitaWare integration documentation:** version, licensed interfaces, CoT configuration, RTSP/FMV handling, API/SDK terms. Via your SitaWare administrator or Systematic.
 - **AP manual:** bridge mode, client isolation, multicast settings.
 - **Camera manuals:** stream protocols, codecs, minimum bitrate.
@@ -703,13 +743,15 @@ L3Harris tactical radio documentation is frequently export-controlled or distrib
 Date / operator:
 Pi model / OS / kernel / NetworkManager version:
 Radio model / waveform / firmware (AN/PRC-171 / RF-9820S):
+Channel bandwidth (WRAITH 10/20 MHz or TSM 40 MHz):
+Reported rate / measured usable IP throughput / test conditions:
 Radio host interface: exists? / USB VID:PID / driver bound / interface name:
 Radio link mode (bridged L2 or routed L3):
 Measured RF throughput / range / net load at time of test:
 AP model / firmware / mode / client isolation state:
 Camera models / stream protocol / codec / bitrate:
 Rate adaptation method / target bitrate:
-Address plan / DHCP owner:
+Address plan / DHCP owner / radio DHCP pool and scope:
 Bridge or routing configuration:
 SitaWare version / interfaces used / track visible? / video visible?:
 Tests performed / duration:

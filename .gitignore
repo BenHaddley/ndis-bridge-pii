@@ -1,0 +1,13 @@
+# OS / editor cruft
+Thumbs.db
+desktop.ini
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/
+
+# Bench artefacts — packet captures can contain video and credentials.
+# Never commit these; redact and share out of band if needed.
+*.pcap
+*.pcapng
